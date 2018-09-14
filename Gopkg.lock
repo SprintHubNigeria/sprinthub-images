@@ -16,12 +16,6 @@
   version = "v0.24.0"
 
 [[projects]]
-  name = "github.com/gobuffalo/envy"
-  packages = ["."]
-  revision = "3c96536452167a705ca5a70b831d3810e1e10452"
-  version = "v1.6.4"
-
-[[projects]]
   name = "github.com/golang/protobuf"
   packages = [
     "proto",
@@ -39,18 +33,6 @@
   packages = ["."]
   revision = "317e0006254c44a0ac427cc52a0e083ff0b9622f"
   version = "v2.0.0"
-
-[[projects]]
-  name = "github.com/joho/godotenv"
-  packages = ["."]
-  revision = "23d116af351c84513e1946b527c88823e476be13"
-  version = "v1.3.0"
-
-[[projects]]
-  name = "github.com/pkg/errors"
-  packages = ["."]
-  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
-  version = "v0.8.0"
 
 [[projects]]
   name = "go.opencensus.io"
@@ -217,6 +199,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a4a989da79f900b3f8700b971fae49871042f0886b86e80fe8767cdbd05bf56f"
+  inputs-digest = "f6e36073751294abf011d2ade158e5f040d3f2615883707e3dc61b921ac537b1"
   solver-name = "gps-cdcl"
   solver-version = 1

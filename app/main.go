@@ -1,40 +1,35 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"sync"
+	"os"
 
-	"github.com/gobuffalo/envy"
-	"github.com/pkg/errors"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/image"
 
-	"github.com/SprintHubNigeria/sprinthub-images/pkg/image"
+	"cloud.google.com/go/storage"
+	"google.golang.org/appengine/blobstore"
 
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/log"
 )
 
 const (
-	imageLocation    = "imageLocation"
-	imageName        = "imageName"
-	callbackURL      = "callbackURL"
-	gcsStorageBucket = "GCS_STORAGE_BUCKET"
-	imagesDir        = "IMAGES_DIR"
+	imageLocation = "imageLocation"
 )
 
 var (
-	bucketName      = ""
-	imagesDirectory = ""
-	once            = sync.Once{}
+	bucketName = ""
 )
 
 func main() {
+	bucketName = os.Getenv("GCS_STORAGE_BUCKET")
+	if bucketName == "" {
+		panic(fmt.Errorf("Missing environment variable %q", "GCS_STORAGE_BUCKET"))
+	}
 	http.HandleFunc("/_ah/warmup", warmUp)
 	http.HandleFunc("/servingUrl", func(w http.ResponseWriter, r *http.Request) {
-		once.Do(func() {
-			ensureEnvVars(map[*string]string{&bucketName: gcsStorageBucket, &imagesDirectory: imagesDir})
-		})
 		if r.Method == http.MethodDelete {
 			deleteServingURL(w, r)
 		} else if r.Method == http.MethodGet {
@@ -48,7 +43,6 @@ func main() {
 }
 
 func warmUp(w http.ResponseWriter, r *http.Request) {
-	ensureEnvVars(map[*string]string{&bucketName: gcsStorageBucket, &imagesDirectory: imagesDir})
 	w.WriteHeader(http.StatusOK)
 	return
 }
@@ -63,24 +57,15 @@ func makeServingURL(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(""))
 		return
 	}
-	servingURL, err := makeServingURLFromGCS(ctx, gcsFileName)
+	servingURL, err := createServingURL(ctx, bucketName, gcsFileName)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(err.Error()))
+		log.Criticalf(ctx, "%+v\n", err)
 		return
 	}
 	w.Write([]byte(servingURL))
 	return
-}
-
-func makeServingURLFromGCS(ctx context.Context, gcsFileName string) (string, error) {
-	img := &image.Image{FileName: gcsFileName}
-	URL, err := img.CreateServingURL(ctx, bucketName)
-	if err != nil {
-		log.Criticalf(ctx, "%+v\n", err)
-		return "", errors.WithMessage(err, "Could not get serving URL")
-	}
-	return URL, nil
 }
 
 func deleteServingURL(w http.ResponseWriter, r *http.Request) {
@@ -92,14 +77,13 @@ func deleteServingURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := appengine.NewContext(r)
-	img := &image.Image{FileName: fileName}
-	if err := img.DeleteServingURL(ctx, bucketName); err != nil {
+	if err := deleteImageServingURL(ctx, bucketName, fileName); err != nil {
 		log.Criticalf(ctx, "Deleting serving URL failed with error: %+v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf("Could not delete serving URL for image %s, please retry\n", fileName)))
 		return
 	}
-	if err := img.DeleteFromGCS(ctx, bucketName); err != nil {
+	if err := deleteFromGCS(ctx, bucketName, fileName); err != nil {
 		log.Criticalf(ctx, "Deleting image failed with error: %+v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf("Could not delete image %s, please retry\n", fileName)))
@@ -109,13 +93,36 @@ func deleteServingURL(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Image and serving URL deleted\n"))
 }
 
-func ensureEnvVars(envVars map[*string]string) {
-	errTemplate := "Missing environment variable %s"
-	for envVar, value := range envVars {
-		env, err := envy.MustGet(value)
-		if err != nil {
-			panic(fmt.Sprintf(errTemplate, envVar))
-		}
-		*envVar = env
+// createServingURL returns a serving URL for an image in cloud storage
+func createServingURL(ctx context.Context, bucketName, fileName string) (string, error) {
+	blobKey, err := blobstore.BlobKeyForFile(ctx, fmt.Sprintf("/gs/%s/%s", bucketName, fileName))
+	if err != nil {
+		return "", err
 	}
+	servingURL, err := image.ServingURL(ctx, blobKey, &image.ServingURLOptions{
+		Secure: true,
+		Size:   450,
+	})
+	if err != nil {
+		return "", err
+	}
+	return servingURL.String(), nil
+}
+
+// deleteImageServingURL makes the serving URL unavailable
+func deleteImageServingURL(ctx context.Context, bucketName, fileName string) error {
+	key, err := blobstore.BlobKeyForFile(ctx, fmt.Sprintf("/gs/%s/%s", bucketName, fileName))
+	if err != nil {
+		return err
+	}
+	return image.DeleteServingURL(ctx, key)
+}
+
+// deleteFromGCS removes the image from cloud storage
+func deleteFromGCS(ctx context.Context, bucketName, fileName string) error {
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	return client.Bucket(bucketName).Object(fileName).Delete(ctx)
 }
