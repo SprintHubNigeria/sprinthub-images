@@ -53,14 +53,12 @@ func makeServingURL(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
 	if gcsFileName == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(""))
+		http.Error(w, "No image location", http.StatusBadRequest)
 		return
 	}
 	servingURL, err := createServingURL(ctx, bucketName, gcsFileName)
 	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(err.Error()))
+		http.Error(w, error.Error(), http.StatusNotFound)
 		log.Criticalf(ctx, "%+v\n", err)
 		return
 	}
@@ -72,21 +70,18 @@ func deleteServingURL(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	fileName := query.Get(imageLocation)
 	if fileName == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("No image location in request query\n"))
+		http.Error(w, "No image location", http.StatusBadRequest)
 		return
 	}
 	ctx := appengine.NewContext(r)
 	if err := deleteImageServingURL(ctx, bucketName, fileName); err != nil {
 		log.Criticalf(ctx, "Deleting serving URL failed with error: %+v\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf("Could not delete serving URL for image %s, please retry\n", fileName)))
+		http.Error(w, fmt.Sprintf("Could not delete serving URL for image %s", fileName), http.StatusInternalServerError)
 		return
 	}
 	if err := deleteFromGCS(ctx, bucketName, fileName); err != nil {
 		log.Criticalf(ctx, "Deleting image failed with error: %+v\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf("Could not delete image %s, please retry\n", fileName)))
+		http.Error(w, fmt.Sprintf("Could not delete image %s", fileName), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
